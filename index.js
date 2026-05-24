@@ -118,6 +118,55 @@ console.log(user)
       });
     });
 
+    // MAKE DECORATOR
+    app.patch("/users/decorator/:email", async (req, res) => {
+      try {
+        const email = req.params.email;
+        
+        // Fetch the user details
+        const user = await usersCollection.findOne({ email });
+        if (!user) {
+          return res.status(404).send({ success: false, message: "User not found" });
+        }
+
+        // Update user role in users collection
+        const userUpdateResult = await usersCollection.updateOne(
+          { email },
+          { $set: { role: "decorator" } }
+        );
+
+        // Check if decorator already exists in decorators collection
+        const existingDecorator = await decoratorsCollection.findOne({ email });
+        let decoratorResult = null;
+        if (!existingDecorator) {
+          // Create a new decorator document
+          const newDecorator = {
+            name: user.name || "New Decorator",
+            email: user.email,
+            role: "decorator",
+            phone: user.phone || "",
+            image: user.image || "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=300&q=80",
+            specialty: "General Decoration",
+            experienceYears: 1,
+            rating: 5.0,
+            available: true,
+            assignedJobs: [],
+            isApproved: true
+          };
+          decoratorResult = await decoratorsCollection.insertOne(newDecorator);
+        }
+
+        res.send({
+          success: true,
+          message: "User promoted to decorator",
+          userUpdateResult,
+          decoratorResult
+        });
+      } catch (err) {
+        res.status(500).send({ error: err.message });
+      }
+    });
+
     /* ================= SERVICES ================= */
 
     app.get('/services', async (req, res) => {
@@ -269,10 +318,14 @@ console.log(user)
     app.get('/bookings', async (req, res) => {
       try {
         const email = req.query.email;
+        const decoratorEmail = req.query.decoratorEmail;
 
         let query = {};
         if (email) {
           query.userEmail = email;
+        }
+        if (decoratorEmail) {
+          query.decoratorEmail = decoratorEmail;
         }
 
         const result = await bookingsCollection
@@ -336,6 +389,21 @@ console.log(user)
               status: "Assigned"
             }
           }
+        );
+        res.send({ success: true, result });
+      } catch (err) {
+        res.status(500).send({ error: err.message });
+      }
+    });
+
+    // UPDATE STATUS (STEP-BY-STEP) BY DECORATOR
+    app.patch('/bookings/status/:id', async (req, res) => {
+      try {
+        const id = req.params.id;
+        const { status } = req.body;
+        const result = await bookingsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { status } }
         );
         res.send({ success: true, result });
       } catch (err) {
