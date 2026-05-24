@@ -1,10 +1,6 @@
 const express = require('express');
 const cors = require('cors');
-const {
-    MongoClient,
-    ServerApiVersion,
-    ObjectId
-} = require('mongodb');
+const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 
 const app = express();
 const port = process.env.PORT || 4000;
@@ -13,436 +9,263 @@ app.use(cors());
 app.use(express.json());
 
 app.get('/', (req, res) => {
-    res.send("Server running");
+  res.send("Server running");
 });
 
 const uri =
-"mongodb+srv://styledecor:iAQmvhWPWnEIXy3h@cluster0.4h16s8h.mongodb.net/?appName=Cluster0";
+  "mongodb+srv://styledecor:iAQmvhWPWnEIXy3h@cluster0.4h16s8h.mongodb.net/?appName=Cluster0";
 
 const client = new MongoClient(uri, {
-    serverApi: {
-        version: ServerApiVersion.v1,
-        strict: true,
-        deprecationErrors: true
-    }
+  serverApi: {
+    version: ServerApiVersion.v1,
+    strict: true,
+    deprecationErrors: true
+  }
 });
 
 async function connectDB() {
+  try {
+    await client.connect();
+    console.log("MongoDB Connected");
 
-    try {
+    /* ================= COLLECTIONS ================= */
 
-        await client.connect();
+    const servicesCollection =
+      client.db("styledecor").collection("services");
 
-        console.log("MongoDB Connected");
+    const decoratorsCollection =
+      client.db("styledecor").collection("decorators");
 
+    const bookingsCollection =
+      client.db("styledecor").collection("bookings");
 
-        // COLLECTIONS
-        const servicesCollection =
-            client.db("styledecor")
-            .collection("services");
+    const usersCollection =
+      client.db("styledecor").collection("user");
 
-        const decoratorsCollection =
-            client.db("styledecor")
-            .collection("decorators");
+    /* ================= TEST ================= */
 
-        const bookingsCollection =
-            client.db("styledecor")
-            .collection("bookings");
+    app.get('/test-db', async (req, res) => {
+      const result = await client.db("admin").command({ ping: 1 });
+      res.send(result);
+    });
 
+    /* ================= USERS SYSTEM ================= */
 
+    // CREATE USER (REGISTER)
+    app.post("/users", async (req, res) => {
+      try {
+        const user = req.body;
 
-        // =====================================
-        // TEST DB
-        // =====================================
-
-        app.get('/test-db', async(req,res)=>{
-
-            const result =
-            await client
-            .db("admin")
-            .command({ ping:1 });
-
-            res.send(result);
-
+        const existingUser = await usersCollection.findOne({
+          email: user.email
         });
 
+        if (existingUser) {
+          return res.send({
+            success: true,
+            message: "User already exists"
+          });
+        }
 
+        // default role
+        user.role = "user";
 
-        // =====================================
-        // SERVICES API
-        // =====================================
+        const result = await usersCollection.insertOne(user);
 
-        app.get('/services', async(req,res)=>{
-
-            try{
-
-                const search =
-                req.query.search || "";
-
-                const category =
-                req.query.category || "";
-
-                const min =
-                parseInt(req.query.min) || 0;
-
-                const max =
-                parseInt(req.query.max)
-                || Number.MAX_VALUE;
-
-                let query = {
-
-                    cost:{
-                        $gte:min,
-                        $lte:max
-                    }
-
-                };
-
-
-                if(search){
-
-                    query.service_name = {
-
-                        $regex:search,
-                        $options:"i"
-
-                    }
-
-                }
-
-
-                if(category){
-
-                    query.service_category =
-                    category;
-
-                }
-
-
-                const result =
-                await servicesCollection
-                .find(query)
-                .toArray();
-
-                res.send(result);
-
-            }
-
-            catch(err){
-
-                res.status(500).send({
-                    error:err.message
-                })
-
-            }
-
+        res.send({
+          success: true,
+          insertedId: result.insertedId
         });
 
+      } catch (err) {
+        res.status(500).send({ error: err.message });
+      }
+    });
 
+    // GET USER (ROLE CHECK FOR FRONTEND)
+    app.get("/users/:email", async (req, res) => {
+      const email = req.params.email;
+console.log(email)
+      const user = await usersCollection.findOne({ email });
+console.log(user)
+      res.send(user);
+    });
 
-        app.get('/services/:id',
-        async(req,res)=>{
+    // MAKE ADMIN
+    app.patch("/users/admin/:email", async (req, res) => {
+      const email = req.params.email;
 
-            const id =
-            req.params.id;
+      const result = await usersCollection.updateOne(
+        { email },
+        {
+          $set: { role: "admin" }
+        }
+      );
 
-            const result =
-            await servicesCollection
-            .findOne({
+      res.send({
+        success: true,
+        message: "User promoted to admin",
+        result
+      });
+    });
 
-                _id:
-                new ObjectId(id)
+    /* ================= SERVICES ================= */
 
-            });
+    app.get('/services', async (req, res) => {
+      try {
+        const search = req.query.search || "";
+        const category = req.query.category || "";
 
-            res.send(result);
+        const min = parseInt(req.query.min) || 0;
+        const max = parseInt(req.query.max) || Number.MAX_VALUE;
 
+        let query = {
+          cost: {
+            $gte: min,
+            $lte: max
+          }
+        };
+
+        if (search) {
+          query.service_name = {
+            $regex: search,
+            $options: "i"
+          };
+        }
+
+        if (category) {
+          query.service_category = category;
+        }
+
+        const result = await servicesCollection.find(query).toArray();
+        res.send(result);
+
+      } catch (err) {
+        res.status(500).send({ error: err.message });
+      }
+    });
+
+    app.get('/services/:id', async (req, res) => {
+      const id = req.params.id;
+
+      const result = await servicesCollection.findOne({
+        _id: new ObjectId(id)
+      });
+
+      res.send(result);
+    });
+
+    /* ================= DECORATORS ================= */
+
+    app.get('/decorators/top', async (req, res) => {
+      const limit = parseInt(req.query.limit) || 6;
+
+      const result = await decoratorsCollection
+        .find({ isApproved: { $ne: false } })
+        .sort({ rating: -1, totalProjects: -1 })
+        .limit(limit)
+        .toArray();
+
+      res.send(result);
+    });
+
+    app.get('/decorators', async (req, res) => {
+      const result = await decoratorsCollection.find().toArray();
+      res.send(result);
+    });
+
+    /* ================= BOOKINGS ================= */
+
+    app.get('/bookings', async (req, res) => {
+      try {
+        const email = req.query.email;
+
+        let query = {};
+        if (email) {
+          query.userEmail = email;
+        }
+
+        const result = await bookingsCollection
+          .find(query)
+          .sort({ createdAt: -1 })
+          .toArray();
+
+        res.send(result);
+
+      } catch (err) {
+        res.status(500).send({ error: err.message });
+      }
+    });
+
+    app.post('/bookings', async (req, res) => {
+      try {
+        const booking = req.body;
+
+        booking.status = "Assigned";
+        booking.paymentStatus = "Unpaid";
+        booking.createdAt = new Date();
+
+        const result = await bookingsCollection.insertOne(booking);
+
+        res.send({
+          success: true,
+          insertedId: result.insertedId
         });
 
+      } catch (err) {
+        res.status(500).send({ error: err.message });
+      }
+    });
 
+    app.delete('/bookings/:id', async (req, res) => {
+      try {
+        const id = req.params.id;
 
-        // =====================================
-        // DECORATORS API
-        // =====================================
-
-        app.get('/decorators/top',
-        async(req,res)=>{
-
-            const limit =
-            parseInt(req.query.limit)
-            || 6;
-
-            const result =
-            await decoratorsCollection
-
-            .find({
-                isApproved:{
-                    $ne:false
-                }
-            })
-
-            .sort({
-
-                rating:-1,
-                totalProjects:-1
-
-            })
-
-            .limit(limit)
-            .toArray();
-
-            res.send(result);
-
+        const result = await bookingsCollection.deleteOne({
+          _id: new ObjectId(id)
         });
 
+        res.send(result);
 
+      } catch (err) {
+        res.status(500).send({ error: err.message });
+      }
+    });
 
-        app.get('/decorators',
-        async(req,res)=>{
+    /* ================= PAYMENT ================= */
 
-            const result =
-            await decoratorsCollection
-            .find()
-            .toArray();
+    app.patch('/bookings/pay/:id', async (req, res) => {
+      try {
+        const id = req.params.id;
 
-            res.send(result);
+        const result = await bookingsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          {
+            $set: {
+              paymentStatus: "Paid",
+              paidAt: new Date(),
+              transactionId: "TXN-" + Date.now()
+            }
+          }
+        );
 
+        res.send({
+          success: true,
+          message: "Payment Successful",
+          result
         });
 
-
-
-        // =====================================
-        // BOOKINGS API
-        // =====================================
-
-
-        // GET USER BOOKINGS
-        app.get('/bookings',
-        async(req,res)=>{
-
-            try{
-
-                const email =
-                req.query.email;
-
-                let query = {};
-
-                if(email){
-
-                    query.userEmail =
-                    email;
-
-                }
-
-                const result =
-                await bookingsCollection
-
-                .find(query)
-
-                .sort({
-                    createdAt:-1
-                })
-
-                .toArray();
-
-                res.send(result);
-
-            }
-
-            catch(err){
-
-                res.status(500).send({
-                    error:err.message
-                })
-
-            }
-
-        });
-
-
-
-        // CREATE BOOKING
-        app.post('/bookings',
-        async(req,res)=>{
-
-            try{
-
-                const booking =
-                req.body;
-
-                booking.status =
-                "Assigned";
-
-                booking.paymentStatus =
-                "Unpaid";
-
-                booking.createdAt =
-                new Date();
-
-
-                const result =
-                await bookingsCollection
-                .insertOne(booking);
-
-                res.send({
-
-                    success:true,
-
-                    insertedId:
-                    result.insertedId
-
-                });
-
-            }
-
-            catch(err){
-
-                res.status(500).send({
-                    error:err.message
-                })
-
-            }
-
-        });
-
-
-
-        // DELETE BOOKING
-        app.delete('/bookings/:id',
-        async(req,res)=>{
-
-            try{
-
-                const id =
-                req.params.id;
-
-                const result =
-                await bookingsCollection
-                .deleteOne({
-
-                    _id:
-                    new ObjectId(id)
-
-                });
-
-                res.send(result);
-
-            }
-
-            catch(err){
-
-                res.status(500).send({
-                    error:err.message
-                })
-
-            }
-
-        });
-
-
-
-        // =====================================
-        // PAYMENT API
-        // =====================================
-
-
-        // PAY FOR BOOKING
-        app.patch(
-        '/bookings/pay/:id',
-
-        async(req,res)=>{
-
-            try{
-
-                const id =
-                req.params.id;
-
-
-                const filter = {
-
-                    _id:
-                    new ObjectId(id)
-
-                };
-
-
-                const updatedDoc = {
-
-                    $set:{
-
-                        paymentStatus:
-                        "Paid",
-
-                        paidAt:
-                        new Date(),
-
-                        transactionId:
-
-                        "TXN-" +
-                        Date.now()
-
-                    }
-
-                };
-
-
-                const result =
-                await bookingsCollection
-                .updateOne(
-
-                    filter,
-                    updatedDoc
-
-                );
-
-
-                res.send({
-
-                    success:true,
-
-                    message:
-                    "Payment Successful",
-
-                    result
-
-                });
-
-            }
-
-            catch(err){
-
-                res.status(500).send({
-
-                    error:
-                    err.message
-
-                })
-
-            }
-
-        });
-
-
-
-    }
-
-    catch(err){
-
-        console.log(err);
-
-    }
-
+      } catch (err) {
+        res.status(500).send({ error: err.message });
+      }
+    });
+
+  } catch (err) {
+    console.log(err);
+  }
 }
 
-
-
-app.listen(port,
-async()=>{
-
-    console.log(
-    `Server running ${port}`
-    );
-
-    await connectDB();
-
+app.listen(port, async () => {
+  console.log(`Server running ${port}`);
+  await connectDB();
 });
