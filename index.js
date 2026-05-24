@@ -3,6 +3,7 @@ require('dotenv').config({ path: path.join(__dirname, '.env') });
 const express = require('express');
 const cors = require('cors');
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
+const jwt = require('jsonwebtoken');
 
 console.log("Stripe Key Loaded:", process.env.STRIPE_SECRET_KEY ? process.env.STRIPE_SECRET_KEY.slice(0, 15) + "..." : "None - using fallback");
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY || 'sk_test_51OwWnK2Mw3qFkL1wWvO1vU3v4v5v6v7v8v9v0vAB1C2D3E4F5G6H7I8J9K0L');
@@ -12,6 +13,29 @@ const port = process.env.PORT || 4000;
 
 app.use(cors());
 app.use(express.json());
+
+// MIDDLEWARE: VERIFY JWT TOKEN
+const verifyJWT = (req, res, next) => {
+  const authorization = req.headers.authorization;
+  if (!authorization) {
+    return res.status(401).send({ error: true, message: 'Unauthorized access: Missing authorization header' });
+  }
+  const token = authorization.split(' ')[1];
+  jwt.verify(token, process.env.ACCESS_TOKEN_SECRET || 'styledecor_secret_token_key_2026', (err, decoded) => {
+    if (err) {
+      return res.status(403).send({ error: true, message: 'Forbidden access: Invalid or expired token' });
+    }
+    req.decoded = decoded;
+    next();
+  });
+};
+
+// GENERATE JWT TOKEN
+app.post('/jwt', (req, res) => {
+  const user = req.body;
+  const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET || 'styledecor_secret_token_key_2026', { expiresIn: '1d' });
+  res.send({ token });
+});
 
 app.get('/', (req, res) => {
   res.send("Server running");
@@ -33,7 +57,7 @@ async function connectDB() {
     await client.connect();
     console.log("MongoDB Connected");
 
-    /* ================= COLLECTIONS ================= */
+    
 
     const servicesCollection =
       client.db("styledecor").collection("services");
@@ -65,7 +89,7 @@ async function connectDB() {
         const user = req.body;
 
         const existingUser = await usersCollection.findOne({
-          email: user.email
+          email: { $regex: new RegExp(`^${user.email}$`, 'i') }
         });
 
         if (existingUser) {
@@ -103,7 +127,7 @@ async function connectDB() {
     app.get("/users/:email", async (req, res) => {
       const email = req.params.email;
 console.log(email)
-      const user = await usersCollection.findOne({ email });
+      const user = await usersCollection.findOne({ email: { $regex: new RegExp(`^${email}$`, 'i') } });
 console.log(user)
       res.send(user);
     });
@@ -113,7 +137,7 @@ console.log(user)
       const email = req.params.email;
 
       const result = await usersCollection.updateOne(
-        { email },
+        { email: { $regex: new RegExp(`^${email}$`, 'i') } },
         {
           $set: { role: "admin" }
         }
@@ -132,19 +156,19 @@ console.log(user)
         const email = req.params.email;
         
         // Fetch the user details
-        const user = await usersCollection.findOne({ email });
+        const user = await usersCollection.findOne({ email: { $regex: new RegExp(`^${email}$`, 'i') } });
         if (!user) {
           return res.status(404).send({ success: false, message: "User not found" });
         }
 
         // Update user role in users collection
         const userUpdateResult = await usersCollection.updateOne(
-          { email },
+          { email: { $regex: new RegExp(`^${email}$`, 'i') } },
           { $set: { role: "decorator" } }
         );
 
         // Check if decorator already exists in decorators collection
-        const existingDecorator = await decoratorsCollection.findOne({ email });
+        const existingDecorator = await decoratorsCollection.findOne({ email: { $regex: new RegExp(`^${email}$`, 'i') } });
         let decoratorResult = null;
         if (!existingDecorator) {
           // Create a new decorator document
@@ -323,17 +347,26 @@ console.log(user)
 
     /* ================= BOOKINGS ================= */
 
-    app.get('/bookings', async (req, res) => {
+    app.get('/bookings', verifyJWT, async (req, res) => {
       try {
         const email = req.query.email;
         const decoratorEmail = req.query.decoratorEmail;
 
+        // Verify email authorization
+        const decodedEmail = req.decoded.email;
+        if (email && email.toLowerCase() !== decodedEmail.toLowerCase()) {
+          return res.status(403).send({ error: true, message: 'Forbidden access: Email mismatch' });
+        }
+        if (decoratorEmail && decoratorEmail.toLowerCase() !== decodedEmail.toLowerCase()) {
+          return res.status(403).send({ error: true, message: 'Forbidden access: Email mismatch' });
+        }
+
         let query = {};
         if (email) {
-          query.userEmail = email;
+          query.userEmail = { $regex: new RegExp(`^${email}$`, 'i') };
         }
         if (decoratorEmail) {
-          query.decoratorEmail = decoratorEmail;
+          query.decoratorEmail = { $regex: new RegExp(`^${decoratorEmail}$`, 'i') };
         }
 
         const result = await bookingsCollection
@@ -348,9 +381,14 @@ console.log(user)
       }
     });
 
-    app.post('/bookings', async (req, res) => {
+    app.post('/bookings', verifyJWT, async (req, res) => {
       try {
         const booking = req.body;
+
+        // Security check: email in token must match userEmail in booking request
+        if (booking.userEmail?.toLowerCase() !== req.decoded.email?.toLowerCase()) {
+          return res.status(403).send({ error: true, message: 'Forbidden access: Email mismatch' });
+        }
 
         booking.status = "Assigned";
         booking.paymentStatus = "Unpaid";
@@ -368,7 +406,7 @@ console.log(user)
       }
     });
 
-    app.delete('/bookings/:id', async (req, res) => {
+    app.delete('/bookings/:id', verifyJWT, async (req, res) => {
       try {
         const id = req.params.id;
 
@@ -383,7 +421,7 @@ console.log(user)
       }
     });
 
-    app.patch('/bookings/assign/:id', async (req, res) => {
+    app.patch('/bookings/assign/:id', verifyJWT, async (req, res) => {
       try {
         const id = req.params.id;
         const { decoratorId, decoratorName, decoratorEmail } = req.body;
@@ -405,7 +443,7 @@ console.log(user)
     });
 
     // UPDATE STATUS (STEP-BY-STEP) BY DECORATOR
-    app.patch('/bookings/status/:id', async (req, res) => {
+    app.patch('/bookings/status/:id', verifyJWT, async (req, res) => {
       try {
         const id = req.params.id;
         const { status } = req.body;
@@ -449,7 +487,7 @@ console.log(user)
 
     /* ================= STRIPE INTEGRATION ================= */
 
-    app.post('/create-checkout-session', async (req, res) => {
+    app.post('/create-checkout-session', verifyJWT, async (req, res) => {
       try {
         const { bookingId, serviceName, price, userEmail } = req.body;
         
@@ -488,7 +526,7 @@ console.log(user)
       }
     });
 
-    app.post('/bookings/confirm-payment', async (req, res) => {
+    app.post('/bookings/confirm-payment', verifyJWT, async (req, res) => {
       try {
         const { bookingId, sessionId } = req.body;
 
