@@ -82,6 +82,15 @@ async function connectDB() {
       }
     });
 
+    app.get('/users', async (req, res) => {
+      try {
+        const result = await usersCollection.find().toArray();
+        res.send(result);
+      } catch (err) {
+        res.status(500).send({ error: err.message });
+      }
+    });
+
     // GET USER (ROLE CHECK FOR FRONTEND)
     app.get("/users/:email", async (req, res) => {
       const email = req.params.email;
@@ -155,6 +164,43 @@ console.log(user)
       res.send(result);
     });
 
+    app.post('/services', async (req, res) => {
+      try {
+        const service = req.body;
+        if (service.cost) service.cost = parseInt(service.cost);
+        const result = await servicesCollection.insertOne(service);
+        res.send({ success: true, insertedId: result.insertedId });
+      } catch (err) {
+        res.status(500).send({ error: err.message });
+      }
+    });
+
+    app.patch('/services/:id', async (req, res) => {
+      try {
+        const id = req.params.id;
+        const service = req.body;
+        delete service._id;
+        if (service.cost) service.cost = parseInt(service.cost);
+        const result = await servicesCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: service }
+        );
+        res.send({ success: true, result });
+      } catch (err) {
+        res.status(500).send({ error: err.message });
+      }
+    });
+
+    app.delete('/services/:id', async (req, res) => {
+      try {
+        const id = req.params.id;
+        const result = await servicesCollection.deleteOne({ _id: new ObjectId(id) });
+        res.send(result);
+      } catch (err) {
+        res.status(500).send({ error: err.message });
+      }
+    });
+
     /* ================= DECORATORS ================= */
 
     app.get('/decorators/top', async (req, res) => {
@@ -172,6 +218,50 @@ console.log(user)
     app.get('/decorators', async (req, res) => {
       const result = await decoratorsCollection.find().toArray();
       res.send(result);
+    });
+
+    app.post('/decorators', async (req, res) => {
+      try {
+        const decorator = req.body;
+        decorator.rating = parseFloat(decorator.rating || 5);
+        decorator.experienceYears = parseInt(decorator.experienceYears || 0);
+        decorator.available = decorator.available !== false;
+        decorator.assignedJobs = [];
+        if (decorator.isApproved === undefined) {
+          decorator.isApproved = true;
+        }
+        const result = await decoratorsCollection.insertOne(decorator);
+        res.send({ success: true, insertedId: result.insertedId });
+      } catch (err) {
+        res.status(500).send({ error: err.message });
+      }
+    });
+
+    app.patch('/decorators/:id', async (req, res) => {
+      try {
+        const id = req.params.id;
+        const updates = req.body;
+        delete updates._id;
+        if (updates.rating) updates.rating = parseFloat(updates.rating);
+        if (updates.experienceYears) updates.experienceYears = parseInt(updates.experienceYears);
+        const result = await decoratorsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: updates }
+        );
+        res.send({ success: true, result });
+      } catch (err) {
+        res.status(500).send({ error: err.message });
+      }
+    });
+
+    app.delete('/decorators/:id', async (req, res) => {
+      try {
+        const id = req.params.id;
+        const result = await decoratorsCollection.deleteOne({ _id: new ObjectId(id) });
+        res.send(result);
+      } catch (err) {
+        res.status(500).send({ error: err.message });
+      }
     });
 
     /* ================= BOOKINGS ================= */
@@ -227,6 +317,27 @@ console.log(user)
 
         res.send(result);
 
+      } catch (err) {
+        res.status(500).send({ error: err.message });
+      }
+    });
+
+    app.patch('/bookings/assign/:id', async (req, res) => {
+      try {
+        const id = req.params.id;
+        const { decoratorId, decoratorName, decoratorEmail } = req.body;
+        const result = await bookingsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          {
+            $set: {
+              decoratorId,
+              decoratorName,
+              decoratorEmail,
+              status: "Assigned"
+            }
+          }
+        );
+        res.send({ success: true, result });
       } catch (err) {
         res.status(500).send({ error: err.message });
       }
