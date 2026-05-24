@@ -49,220 +49,431 @@ async function connectDB() {
         // TEST DB
         // =========================
         app.get('/test-db', async (req, res) => {
+
             const result =
                 await client
                     .db("admin")
                     .command({ ping: 1 });
 
             res.send(result);
+
         });
 
         // =====================================================
         // SERVICES API
         // =====================================================
 
-        /* GET ALL SERVICES + SEARCH + FILTER */
         app.get('/services', async (req, res) => {
 
             try {
 
-                const search = req.query.search || "";
-                const category = req.query.category || "";
-                const min = parseInt(req.query.min) || 0;
-                const max = parseInt(req.query.max) || Number.MAX_VALUE;
+                const search =
+                    req.query.search || "";
+
+                const category =
+                    req.query.category || "";
+
+                const min =
+                    parseInt(req.query.min) || 0;
+
+                const max =
+                    parseInt(req.query.max)
+                    || Number.MAX_VALUE;
 
                 let query = {
+
                     cost: {
                         $gte: min,
                         $lte: max
                     }
+
                 };
 
                 if (search) {
+
                     query.service_name = {
+
                         $regex: search,
                         $options: "i"
+
                     };
+
                 }
 
                 if (category) {
-                    query.service_category = category;
+
+                    query.service_category =
+                        category;
+
                 }
 
-                const result = await servicesCollection.find(query).toArray();
+                const result =
+                    await servicesCollection
+                        .find(query)
+                        .toArray();
 
                 res.send(result);
 
-            } catch (err) {
+            }
+
+            catch (err) {
+
                 res.status(500).send({
-                    success: false,
                     error: err.message
                 });
+
             }
 
         });
 
-        /* GET SINGLE SERVICE */
+
+
         app.get('/services/:id', async (req, res) => {
 
             try {
 
-                const id = req.params.id;
+                const id =
+                    req.params.id;
 
-                const result = await servicesCollection.findOne({
-                    _id: new ObjectId(id)
-                });
+                const result =
+                    await servicesCollection.findOne({
+
+                        _id:
+                            new ObjectId(id)
+
+                    });
 
                 res.send(result);
 
-            } catch (err) {
+            }
+
+            catch (err) {
+
                 res.status(500).send({
                     error: err.message
                 });
+
             }
 
         });
+
+
 
         // =====================================================
         // DECORATORS API
         // =====================================================
 
-        /* TOP DECORATORS */
         app.get('/decorators/top', async (req, res) => {
 
             try {
 
-                const limit = parseInt(req.query.limit) || 6;
+                const limit =
+                    parseInt(req.query.limit)
+                    || 6;
 
-                const result = await decoratorsCollection
-                    .find({ isApproved: { $ne: false } })
-                    .sort({
-                        rating: -1,
-                        totalProjects: -1
-                    })
-                    .limit(limit)
-                    .toArray();
+                const result =
+                    await decoratorsCollection
+                        .find({
+                            isApproved:
+                                { $ne: false }
+                        })
+                        .sort({
+                            rating: -1,
+                            totalProjects: -1
+                        })
+                        .limit(limit)
+                        .toArray();
 
                 res.send(result);
 
-            } catch (err) {
+            }
+
+            catch (err) {
+
                 res.status(500).send({
-                    success: false,
                     error: err.message
                 });
+
             }
 
         });
 
-        /* ALL DECORATORS */
+
+
         app.get('/decorators', async (req, res) => {
 
             try {
 
-                const search = req.query.search || "";
-                const specialty = req.query.specialty || "";
-                const sort = req.query.sort || "";
-                const page = parseInt(req.query.page) || 1;
-                const limit = parseInt(req.query.limit) || 10;
+                const search =
+                    req.query.search || "";
+
+                const specialty =
+                    req.query.specialty || "";
+
+                const sort =
+                    req.query.sort || "";
+
+                const page =
+                    parseInt(req.query.page)
+                    || 1;
+
+                const limit =
+                    parseInt(req.query.limit)
+                    || 10;
+
 
                 let query = {
-                    isApproved: { $ne: false }
+
+                    isApproved:
+                        { $ne: false }
+
                 };
 
+
                 if (search) {
+
                     query.name = {
+
                         $regex: search,
                         $options: "i"
+
                     };
+
                 }
+
 
                 if (specialty) {
-                    query.specialties = specialty;
+
+                    query.specialties =
+                        specialty;
+
                 }
 
-                let sortOption = { createdAt: -1 };
+
+                let sortOption = {
+                    createdAt: -1
+                };
+
 
                 if (sort === "rating") {
-                    sortOption = { rating: -1 };
+
+                    sortOption = {
+                        rating: -1
+                    };
+
                 }
+
 
                 if (sort === "projects") {
-                    sortOption = { totalProjects: -1 };
+
+                    sortOption = {
+                        totalProjects: -1
+                    };
+
                 }
 
-                const skip = (page - 1) * limit;
 
-                const result = await decoratorsCollection
-                    .find(query)
-                    .sort(sortOption)
-                    .skip(skip)
-                    .limit(limit)
-                    .toArray();
+                const skip =
+                    (page - 1) * limit;
 
-                const total = await decoratorsCollection.countDocuments(query);
+
+                const result =
+                    await decoratorsCollection
+                        .find(query)
+                        .sort(sortOption)
+                        .skip(skip)
+                        .limit(limit)
+                        .toArray();
+
+
+                const total =
+                    await decoratorsCollection
+                        .countDocuments(query);
+
 
                 res.send({
+
                     data: result,
+
                     pagination: {
+
                         total,
                         page,
-                        pages: Math.ceil(total / limit)
+
+                        pages:
+                            Math.ceil(total / limit)
+
                     }
+
                 });
 
-            } catch (err) {
+            }
+
+            catch (err) {
+
                 res.status(500).send({
-                    success: false,
                     error: err.message
                 });
+
             }
 
         });
+
+
 
         // =====================================================
         // BOOKINGS API
         // =====================================================
 
-        /* CREATE BOOKING */
-        app.post('/bookings', async (req, res) => {
+        // GET ALL BOOKINGS OF USER
+        app.get('/bookings', async (req, res) => {
 
             try {
 
-                const booking = req.body;
+                const email =
+                    req.query.email;
 
-                booking.status = booking.status || "Assigned";
-                booking.createdAt = new Date();
+                let query = {};
 
-                const result = await bookingsCollection.insertOne(booking);
+                if (email) {
 
-                res.send({
-                    success: true,
-                    message: "Booking created successfully",
-                    insertedId: result.insertedId
-                });
+                    query.userEmail =
+                        email;
 
-            } catch (err) {
+                }
+
+                const result =
+                    await bookingsCollection
+                        .find(query)
+                        .sort({
+                            createdAt: -1
+                        })
+                        .toArray();
+
+                res.send(result);
+
+            }
+
+            catch (err) {
 
                 res.status(500).send({
+
                     success: false,
-                    error: err.message
+
+                    error:
+                        err.message
+
                 });
 
             }
 
         });
 
-        // =========================
-        // END DB CONNECTION
-        // =========================
 
-    } catch (err) {
+
+        // CREATE BOOKING
+        app.post('/bookings', async (req, res) => {
+
+            try {
+
+                const booking =
+                    req.body;
+
+                booking.status =
+                    booking.status ||
+                    "Assigned";
+
+                booking.createdAt =
+                    new Date();
+
+                const result =
+                    await bookingsCollection
+                        .insertOne(booking);
+
+
+                res.send({
+
+                    success: true,
+
+                    insertedId:
+                        result.insertedId,
+
+                    message:
+                        "Booking Created"
+
+                });
+
+            }
+
+            catch (err) {
+
+                res.status(500).send({
+
+                    success: false,
+
+                    error:
+                        err.message
+
+                });
+
+            }
+
+        });
+
+
+
+        // DELETE BOOKING
+        app.delete('/bookings/:id', async (req, res) => {
+
+            try {
+
+                const id =
+                    req.params.id;
+
+                const result =
+                    await bookingsCollection
+                        .deleteOne({
+
+                            _id:
+                                new ObjectId(id)
+
+                        });
+
+                res.send(result);
+
+            }
+
+            catch (err) {
+
+                res.status(500).send({
+
+                    error:
+                        err.message
+
+                });
+
+            }
+
+        });
+
+
+
+    }
+
+    catch (err) {
+
         console.log(err);
+
     }
 
 }
 
 app.listen(port, async () => {
-    console.log(`Server running ${port}`);
+
+    console.log(
+        `Server running ${port}`
+    );
+
     await connectDB();
+
 });
