@@ -41,6 +41,10 @@ async function connectDB() {
             client.db("styledecor")
                 .collection("decorators");
 
+        const bookingsCollection =
+            client.db("styledecor")
+                .collection("bookings");
+
         // =========================
         // TEST DB
         // =========================
@@ -57,10 +61,7 @@ async function connectDB() {
         // SERVICES API
         // =====================================================
 
-        /* ===========================
-        GET ALL SERVICES + SEARCH + FILTER
-        =========================== */
-
+        /* GET ALL SERVICES + SEARCH + FILTER */
         app.get('/services', async (req, res) => {
 
             try {
@@ -77,7 +78,6 @@ async function connectDB() {
                     }
                 };
 
-                // search by service name
                 if (search) {
                     query.service_name = {
                         $regex: search,
@@ -85,14 +85,11 @@ async function connectDB() {
                     };
                 }
 
-                // filter by category
                 if (category) {
                     query.service_category = category;
                 }
 
-                const result = await servicesCollection
-                    .find(query)
-                    .toArray();
+                const result = await servicesCollection.find(query).toArray();
 
                 res.send(result);
 
@@ -105,21 +102,16 @@ async function connectDB() {
 
         });
 
-        /* ===========================
-        GET SINGLE SERVICE
-        =========================== */
-
+        /* GET SINGLE SERVICE */
         app.get('/services/:id', async (req, res) => {
 
             try {
 
                 const id = req.params.id;
 
-                const query = {
+                const result = await servicesCollection.findOne({
                     _id: new ObjectId(id)
-                };
-
-                const result = await servicesCollection.findOne(query);
+                });
 
                 res.send(result);
 
@@ -135,17 +127,13 @@ async function connectDB() {
         // DECORATORS API
         // =====================================================
 
-        /* ===========================
-        GET TOP DECORATORS
-        =========================== */
-
+        /* TOP DECORATORS */
         app.get('/decorators/top', async (req, res) => {
 
             try {
 
                 const limit = parseInt(req.query.limit) || 6;
 
-                // FIX: Use $ne: false so documents without isApproved field are also included
                 const result = await decoratorsCollection
                     .find({ isApproved: { $ne: false } })
                     .sort({
@@ -166,11 +154,7 @@ async function connectDB() {
 
         });
 
-        /* ===========================
-        GET ALL DECORATORS
-        SEARCH + FILTER + SORT + PAGINATION
-        =========================== */
-
+        /* ALL DECORATORS */
         app.get('/decorators', async (req, res) => {
 
             try {
@@ -181,12 +165,10 @@ async function connectDB() {
                 const page = parseInt(req.query.page) || 1;
                 const limit = parseInt(req.query.limit) || 10;
 
-                // FIX: Use $ne: false so documents without isApproved field are also included
                 let query = {
                     isApproved: { $ne: false }
                 };
 
-                // search by name
                 if (search) {
                     query.name = {
                         $regex: search,
@@ -194,14 +176,11 @@ async function connectDB() {
                     };
                 }
 
-                // filter by specialty
                 if (specialty) {
                     query.specialties = specialty;
                 }
 
-                let sortOption = {
-                    createdAt: -1
-                };
+                let sortOption = { createdAt: -1 };
 
                 if (sort === "rating") {
                     sortOption = { rating: -1 };
@@ -240,8 +219,41 @@ async function connectDB() {
 
         });
 
+        // =====================================================
+        // BOOKINGS API
+        // =====================================================
+
+        /* CREATE BOOKING */
+        app.post('/bookings', async (req, res) => {
+
+            try {
+
+                const booking = req.body;
+
+                booking.status = booking.status || "Assigned";
+                booking.createdAt = new Date();
+
+                const result = await bookingsCollection.insertOne(booking);
+
+                res.send({
+                    success: true,
+                    message: "Booking created successfully",
+                    insertedId: result.insertedId
+                });
+
+            } catch (err) {
+
+                res.status(500).send({
+                    success: false,
+                    error: err.message
+                });
+
+            }
+
+        });
+
         // =========================
-        // END CONNECT DB FUNCTION
+        // END DB CONNECTION
         // =========================
 
     } catch (err) {
