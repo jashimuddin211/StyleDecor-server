@@ -1,6 +1,11 @@
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '.env') });
 const express = require('express');
 const cors = require('cors');
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
+
+console.log("Stripe Key Loaded:", process.env.STRIPE_SECRET_KEY ? process.env.STRIPE_SECRET_KEY.slice(0, 15) + "..." : "None - using fallback");
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY || 'sk_test_51OwWnK2Mw3qFkL1wWvO1vU3v4v5v6v7v8v9v0vAB1C2D3E4F5G6H7I8J9K0L');
 
 const app = express();
 const port = process.env.PORT || 4000;
@@ -41,6 +46,9 @@ async function connectDB() {
 
     const usersCollection =
       client.db("styledecor").collection("user");
+
+    const transactionsCollection =
+      client.db("styledecor").collection("transactions");
 
     /* ================= TEST ================= */
 
@@ -435,6 +443,112 @@ console.log(user)
         });
 
       } catch (err) {
+        res.status(500).send({ error: err.message });
+      }
+    });
+
+    /* ================= STRIPE INTEGRATION ================= */
+
+    app.post('/create-checkout-session', async (req, res) => {
+      try {
+        const { bookingId, serviceName, price, userEmail } = req.body;
+        
+        if (!bookingId || !price) {
+          return res.status(400).send({ error: "Missing required booking details" });
+        }
+
+        const session = await stripe.checkout.sessions.create({
+          payment_method_types: ['card'],
+          line_items: [
+            {
+              price_data: {
+                currency: 'bdt',
+                product_data: {
+                  name: serviceName || "Decoration Service",
+                },
+                unit_amount: Math.round(price * 100), // in cents
+              },
+              quantity: 1,
+            },
+          ],
+          mode: 'payment',
+          success_url: `http://localhost:5173/dashboard/payment-success?session_id={CHECKOUT_SESSION_ID}&bookingId=${bookingId}`,
+          cancel_url: `http://localhost:5173/dashboard/payment-history`,
+          metadata: {
+            bookingId,
+            userEmail: userEmail || "",
+            serviceName: serviceName || ""
+          }
+        });
+
+        res.send({ url: session.url });
+      } catch (err) {
+        console.error("Stripe Session Error:", err);
+        res.status(500).send({ error: err.message });
+      }
+    });
+
+    app.post('/bookings/confirm-payment', async (req, res) => {
+      try {
+        const { bookingId, sessionId } = req.body;
+
+        if (!bookingId || !sessionId) {
+          return res.status(400).send({ error: "Missing bookingId or sessionId" });
+        }
+
+        // Check if transaction is already confirmed
+        const existingTxn = await transactionsCollection.findOne({ stripeSessionId: sessionId });
+        if (existingTxn) {
+          return res.send({ success: true, message: "Payment already confirmed", result: existingTxn });
+        }
+
+        // Retrieve stripe session details
+        const session = await stripe.checkout.sessions.retrieve(sessionId);
+        if (session.payment_status !== 'paid') {
+          return res.status(400).send({ error: "Stripe session has not been paid yet" });
+        }
+
+        const transactionId = session.payment_intent || ("TXN-STRI-" + Date.now());
+
+        // Update booking status & transaction fields in database
+        const bookingUpdate = await bookingsCollection.updateOne(
+          { _id: new ObjectId(bookingId) },
+          {
+            $set: {
+              paymentStatus: "Paid",
+              paidAt: new Date(),
+              transactionId: transactionId,
+              stripeSessionId: sessionId
+            }
+          }
+        );
+
+        // Store secure transaction receipt in server
+        const transactionInfo = {
+          bookingId,
+          stripeSessionId: sessionId,
+          transactionId,
+          userEmail: session.metadata.userEmail || "",
+          serviceName: session.metadata.serviceName || "",
+          amount: session.amount_total / 100,
+          currency: session.currency,
+          paymentStatus: "Paid",
+          paidAt: new Date(),
+          paymentMethod: "Stripe Card"
+        };
+
+        const txnInsert = await transactionsCollection.insertOne(transactionInfo);
+
+        res.send({
+          success: true,
+          message: "Payment confirmed and stored successfully",
+          bookingUpdate,
+          txnInsert,
+          transactionInfo
+        });
+
+      } catch (err) {
+        console.error("Confirmation Error:", err);
         res.status(500).send({ error: err.message });
       }
     });
