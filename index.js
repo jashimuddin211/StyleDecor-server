@@ -52,36 +52,47 @@ const client = new MongoClient(uri, {
   }
 });
 
+let servicesCollection;
+let decoratorsCollection;
+let bookingsCollection;
+let usersCollection;
+let transactionsCollection;
+
 async function connectDB() {
   try {
     await client.connect();
     console.log("MongoDB Connected");
 
-    
+    const db = client.db("styledecor");
+    servicesCollection = db.collection("services");
+    decoratorsCollection = db.collection("decorators");
+    bookingsCollection = db.collection("bookings");
+    usersCollection = db.collection("user");
+    transactionsCollection = db.collection("transactions");
+  } catch (err) {
+    console.error("MongoDB Connection Error:", err);
+  }
+}
 
-    const servicesCollection =
-      client.db("styledecor").collection("services");
+// Middleware to ensure DB connection is ready
+app.use((req, res, next) => {
+  const exemptPaths = ['/', '/test-db'];
+  if (!exemptPaths.includes(req.path) && !servicesCollection) {
+    return res.status(503).send({ 
+      error: true, 
+      message: 'Database connection is still establishing. Please try again in a few seconds.' 
+    });
+  }
+  next();
+});
 
-    const decoratorsCollection =
-      client.db("styledecor").collection("decorators");
-
-    const bookingsCollection =
-      client.db("styledecor").collection("bookings");
-
-    const usersCollection =
-      client.db("styledecor").collection("user");
-
-    const transactionsCollection =
-      client.db("styledecor").collection("transactions");
-
-    /* ================= TEST ================= */
 
     app.get('/test-db', async (req, res) => {
       const result = await client.db("admin").command({ ping: 1 });
       res.send(result);
     });
 
-    /* ================= USERS SYSTEM ================= */
+    
 
     // CREATE USER (REGISTER)
     app.post("/users", async (req, res) => {
@@ -199,7 +210,7 @@ console.log(user)
       }
     });
 
-    /* ================= SERVICES ================= */
+    
 
     app.get('/services', async (req, res) => {
       try {
@@ -282,7 +293,7 @@ console.log(user)
       }
     });
 
-    /* ================= DECORATORS ================= */
+    
 
     app.get('/decorators/top', async (req, res) => {
       const limit = parseInt(req.query.limit) || 6;
@@ -345,7 +356,7 @@ console.log(user)
       }
     });
 
-    /* ================= BOOKINGS ================= */
+    
 
     app.get('/bookings', verifyJWT, async (req, res) => {
       try {
@@ -385,7 +396,7 @@ console.log(user)
       try {
         const booking = req.body;
 
-        // Security check: email in token must match userEmail in booking request
+        // Security check
         if (booking.userEmail?.toLowerCase() !== req.decoded.email?.toLowerCase()) {
           return res.status(403).send({ error: true, message: 'Forbidden access: Email mismatch' });
         }
@@ -457,7 +468,7 @@ console.log(user)
       }
     });
 
-    /* ================= PAYMENT ================= */
+    
 
     app.patch('/bookings/pay/:id', async (req, res) => {
       try {
@@ -485,7 +496,7 @@ console.log(user)
       }
     });
 
-    /* ================= STRIPE INTEGRATION ================= */
+    
 
     app.post('/create-checkout-session', verifyJWT, async (req, res) => {
       try {
@@ -590,13 +601,11 @@ console.log(user)
         res.status(500).send({ error: err.message });
       }
     });
+// Start MongoDB connection immediately in the background
+connectDB();
 
-  } catch (err) {
-    console.log(err);
-  }
-}
-
-app.listen(port, async () => {
-  console.log(`Server running ${port}`);
-  await connectDB();
+app.listen(port, () => {
+  console.log(`Server running on port ${port}`);
 });
+
+module.exports = app;
