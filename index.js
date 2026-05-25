@@ -57,6 +57,7 @@ let decoratorsCollection;
 let bookingsCollection;
 let usersCollection;
 let transactionsCollection;
+let dbConnectionPromise = null;
 
 async function connectDB() {
   try {
@@ -71,17 +72,30 @@ async function connectDB() {
     transactionsCollection = db.collection("transactions");
   } catch (err) {
     console.error("MongoDB Connection Error:", err);
+    throw err;
   }
 }
 
 // Middleware to ensure DB connection is ready
-app.use((req, res, next) => {
+app.use(async (req, res, next) => {
   const exemptPaths = ['/', '/test-db'];
-  if (!exemptPaths.includes(req.path) && !servicesCollection) {
-    return res.status(503).send({ 
-      error: true, 
-      message: 'Database connection is still establishing. Please try again in a few seconds.' 
-    });
+  if (!exemptPaths.includes(req.path)) {
+    try {
+      if (dbConnectionPromise) {
+        await dbConnectionPromise;
+      }
+      if (!servicesCollection) {
+        return res.status(503).send({ 
+          error: true, 
+          message: 'Database connection failed to establish. Please check MongoDB access settings.' 
+        });
+      }
+    } catch (err) {
+      return res.status(503).send({ 
+        error: true, 
+        message: 'Database connection failed to establish: ' + err.message 
+      });
+    }
   }
   next();
 });
@@ -601,8 +615,8 @@ console.log(user)
         res.status(500).send({ error: err.message });
       }
     });
-// Start MongoDB connection immediately in the background
-connectDB();
+// Start MongoDB connection immediately in the background and store the promise
+dbConnectionPromise = connectDB();
 
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
