@@ -30,9 +30,29 @@ const verifyJWT = (req, res, next) => {
   });
 };
 
+// Validation helpers
+const validateEmail = (email) => {
+  if (!email || typeof email !== 'string') return false;
+  const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  return re.test(email.trim());
+};
+
+const validateUrl = (url) => {
+  if (!url || typeof url !== 'string') return false;
+  try {
+    new URL(url);
+    return true;
+  } catch (e) {
+    return false;
+  }
+};
+
 // GENERATE JWT TOKEN
 app.post('/jwt', (req, res) => {
   const user = req.body;
+  if (!user || !user.email || !validateEmail(user.email)) {
+    return res.status(400).send({ error: true, message: "A valid email is required to issue a token." });
+  }
   const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET || 'styledecor_secret_token_key_2026', { expiresIn: '1d' });
   res.send({ token });
 });
@@ -57,6 +77,7 @@ let decoratorsCollection;
 let bookingsCollection;
 let usersCollection;
 let transactionsCollection;
+let contactsCollection;
 let dbConnectionPromise = null;
 
 async function connectDB() {
@@ -70,6 +91,7 @@ async function connectDB() {
     bookingsCollection = db.collection("bookings");
     usersCollection = db.collection("user");
     transactionsCollection = db.collection("transactions");
+    contactsCollection = db.collection("contacts");
   } catch (err) {
     console.error("MongoDB Connection Error:", err);
     throw err;
@@ -113,29 +135,45 @@ app.use(async (req, res, next) => {
       try {
         const user = req.body;
 
+        // Server-side validation
+        if (!user || !user.name || typeof user.name !== 'string' || user.name.trim().length < 2) {
+          return res.status(400).send({ error: true, message: "Name must be at least 2 characters long." });
+        }
+        if (!user || !user.email || !validateEmail(user.email)) {
+          return res.status(400).send({ error: true, message: "A valid email address is required." });
+        }
+        if (user.photoURL && !validateUrl(user.photoURL)) {
+          return res.status(400).send({ error: true, message: "Profile image URL is invalid." });
+        }
+
         const existingUser = await usersCollection.findOne({
-          email: { $regex: new RegExp(`^${user.email}$`, 'i') }
+          email: { $regex: new RegExp(`^${user.email.trim()}$`, 'i') }
         });
 
         if (existingUser) {
-          return res.send({
-            success: true,
-            message: "User already exists"
+          return res.status(400).send({
+            error: true,
+            message: "User already exists with this email address."
           });
         }
 
-        // default role
-        user.role = "user";
+        const newUser = {
+          name: user.name.trim(),
+          email: user.email.trim().toLowerCase(),
+          photoURL: user.photoURL ? user.photoURL.trim() : "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=300&q=80",
+          role: "user",
+          createdAt: new Date()
+        };
 
-        const result = await usersCollection.insertOne(user);
+        const result = await usersCollection.insertOne(newUser);
 
-        res.send({
+        res.status(201).send({
           success: true,
           insertedId: result.insertedId
         });
 
       } catch (err) {
-        res.status(500).send({ error: err.message });
+        res.status(500).send({ error: true, message: err.message });
       }
     });
 
@@ -270,14 +308,52 @@ console.log(user)
       res.send(result);
     });
 
+    const validateServiceData = (service) => {
+      const errors = [];
+      if (!service.service_name || typeof service.service_name !== 'string' || service.service_name.trim().length < 3) {
+        errors.push("Service name must be at least 3 characters.");
+      }
+      const cost = parseInt(service.cost);
+      if (isNaN(cost) || cost <= 0) {
+        errors.push("Cost must be a positive integer.");
+      }
+      if (!service.unit || typeof service.unit !== 'string' || service.unit.trim().length < 2) {
+        errors.push("Unit must be at least 2 characters.");
+      }
+      if (!service.service_category || typeof service.service_category !== 'string') {
+        errors.push("Service category is required.");
+      }
+      if (!service.description || typeof service.description !== 'string' || service.description.trim().length < 10) {
+        errors.push("Description must be at least 10 characters.");
+      }
+      if (service.image && !validateUrl(service.image)) {
+        errors.push("Image URL format is invalid.");
+      }
+      return errors;
+    };
+
     app.post('/services', async (req, res) => {
       try {
         const service = req.body;
-        if (service.cost) service.cost = parseInt(service.cost);
-        const result = await servicesCollection.insertOne(service);
-        res.send({ success: true, insertedId: result.insertedId });
+        const errors = validateServiceData(service);
+        if (errors.length > 0) {
+          return res.status(400).send({ error: true, message: errors.join(" ") });
+        }
+        
+        const newService = {
+          service_name: service.service_name.trim(),
+          cost: parseInt(service.cost),
+          unit: service.unit.trim(),
+          service_category: service.service_category.trim(),
+          description: service.description.trim(),
+          image: service.image ? service.image.trim() : "https://images.unsplash.com/photo-1606800052052-a08af7148866?auto=format&fit=crop&w=800&q=60",
+          createdByEmail: service.createdByEmail ? service.createdByEmail.trim().toLowerCase() : "admin@styledecor.com"
+        };
+
+        const result = await servicesCollection.insertOne(newService);
+        res.status(201).send({ success: true, insertedId: result.insertedId });
       } catch (err) {
-        res.status(500).send({ error: err.message });
+        res.status(500).send({ error: true, message: err.message });
       }
     });
 
@@ -286,14 +362,47 @@ console.log(user)
         const id = req.params.id;
         const service = req.body;
         delete service._id;
-        if (service.cost) service.cost = parseInt(service.cost);
+        
+        const errors = [];
+        if (service.service_name !== undefined && (typeof service.service_name !== 'string' || service.service_name.trim().length < 3)) {
+          errors.push("Service name must be at least 3 characters.");
+        }
+        if (service.cost !== undefined) {
+          const cost = parseInt(service.cost);
+          if (isNaN(cost) || cost <= 0) {
+            errors.push("Cost must be a positive integer.");
+          }
+        }
+        if (service.unit !== undefined && (typeof service.unit !== 'string' || service.unit.trim().length < 2)) {
+          errors.push("Unit must be at least 2 characters.");
+        }
+        if (service.description !== undefined && (typeof service.description !== 'string' || service.description.trim().length < 10)) {
+          errors.push("Description must be at least 10 characters.");
+        }
+        if (service.image !== undefined && service.image && !validateUrl(service.image)) {
+          errors.push("Image URL format is invalid.");
+        }
+        
+        if (errors.length > 0) {
+          return res.status(400).send({ error: true, message: errors.join(" ") });
+        }
+
+        if (service.cost !== undefined) {
+          service.cost = parseInt(service.cost);
+        }
+        if (service.service_name) service.service_name = service.service_name.trim();
+        if (service.unit) service.unit = service.unit.trim();
+        if (service.description) service.description = service.description.trim();
+        if (service.image) service.image = service.image.trim();
+        if (service.createdByEmail) service.createdByEmail = service.createdByEmail.trim().toLowerCase();
+
         const result = await servicesCollection.updateOne(
           { _id: new ObjectId(id) },
           { $set: service }
         );
         res.send({ success: true, result });
       } catch (err) {
-        res.status(500).send({ error: err.message });
+        res.status(500).send({ error: true, message: err.message });
       }
     });
 
@@ -304,6 +413,85 @@ console.log(user)
         res.send(result);
       } catch (err) {
         res.status(500).send({ error: err.message });
+      }
+    });
+
+    // POST CONTACT MESSAGE
+    app.post('/contacts', async (req, res) => {
+      try {
+        const contact = req.body;
+        
+        if (!contact.name || typeof contact.name !== 'string' || contact.name.trim().length < 2) {
+          return res.status(400).send({ error: true, message: "Name must be at least 2 characters." });
+        }
+        if (!contact.email || !validateEmail(contact.email)) {
+          return res.status(400).send({ error: true, message: "A valid email address is required." });
+        }
+        if (!contact.subject || typeof contact.subject !== 'string' || contact.subject.trim().length < 4) {
+          return res.status(400).send({ error: true, message: "Subject must be at least 4 characters." });
+        }
+        if (!contact.message || typeof contact.message !== 'string' || contact.message.trim().length < 10) {
+          return res.status(400).send({ error: true, message: "Message must be at least 10 characters." });
+        }
+        
+        const newContact = {
+          name: contact.name.trim(),
+          email: contact.email.trim().toLowerCase(),
+          subject: contact.subject.trim(),
+          message: contact.message.trim(),
+          createdAt: new Date()
+        };
+        
+        const result = await contactsCollection.insertOne(newContact);
+        res.status(201).send({ success: true, insertedId: result.insertedId });
+      } catch (err) {
+        res.status(500).send({ error: true, message: err.message });
+      }
+    });
+
+    // PATCH UPDATE USER PROFILE
+    app.patch('/users/profile/:email', async (req, res) => {
+      try {
+        const email = req.params.email;
+        const profile = req.body;
+        
+        if (!profile.name || typeof profile.name !== 'string' || profile.name.trim().length < 2) {
+          return res.status(400).send({ error: true, message: "Name must be at least 2 characters." });
+        }
+        if (profile.photoURL && !validateUrl(profile.photoURL)) {
+          return res.status(400).send({ error: true, message: "Profile photo URL format is invalid." });
+        }
+        if (!profile.phone || typeof profile.phone !== 'string' || profile.phone.trim().length < 5) {
+          return res.status(400).send({ error: true, message: "A valid phone number is required." });
+        }
+        
+        // Update users collection
+        const userUpdate = await usersCollection.updateOne(
+          { email: { $regex: new RegExp(`^${email}$`, 'i') } },
+          {
+            $set: {
+              name: profile.name.trim(),
+              photoURL: profile.photoURL ? profile.photoURL.trim() : "",
+              phone: profile.phone.trim()
+            }
+          }
+        );
+        
+        // Also update decorators collection if the user is a decorator
+        const decoratorUpdate = await decoratorsCollection.updateOne(
+          { email: { $regex: new RegExp(`^${email}$`, 'i') } },
+          {
+            $set: {
+              name: profile.name.trim(),
+              image: profile.photoURL ? profile.photoURL.trim() : "",
+              phone: profile.phone.trim()
+            }
+          }
+        );
+        
+        res.send({ success: true, userUpdate, decoratorUpdate });
+      } catch (err) {
+        res.status(500).send({ error: true, message: err.message });
       }
     });
 
@@ -324,6 +512,24 @@ console.log(user)
     app.get('/decorators', async (req, res) => {
       const result = await decoratorsCollection.find().toArray();
       res.send(result);
+    });
+
+    app.get('/stats', async (req, res) => {
+      try {
+        const totalServices = await servicesCollection.estimatedDocumentCount();
+        const totalDecorators = await decoratorsCollection.estimatedDocumentCount();
+        const totalBookings = await bookingsCollection.estimatedDocumentCount();
+        const totalUsers = await usersCollection.estimatedDocumentCount();
+        res.send({
+          totalServices: totalServices || 0,
+          totalDecorators: totalDecorators || 0,
+          totalBookings: totalBookings || 0,
+          totalUsers: totalUsers || 0,
+          satisfiedClients: (totalBookings || 0) + 128
+        });
+      } catch (err) {
+        res.status(500).send({ error: err.message });
+      }
     });
 
     app.post('/decorators', async (req, res) => {
